@@ -100,6 +100,7 @@ class Qwen2_5_VLProcessor(ProcessorMixin):
         images: ImageInput = None,
         text: Union[TextInput, PreTokenizedInput, list[TextInput], list[PreTokenizedInput]] = None,
         videos: VideoInput = None,
+        image_embeds = None,
         **kwargs: Unpack[Qwen2_5_VLProcessorKwargs],
     ) -> BatchFeature:
         """
@@ -146,10 +147,6 @@ class Qwen2_5_VLProcessor(ProcessorMixin):
         )
 
         image_inputs = videos_inputs = {}
-        if images is not None:
-            image_inputs = self.image_processor(images=images, **output_kwargs["images_kwargs"])
-            image_grid_thw = image_inputs["image_grid_thw"]
-
         if videos is not None:
             fps = output_kwargs["videos_kwargs"].get("fps", 2.0)
             videos_inputs = self.video_processor(videos=videos, **output_kwargs["videos_kwargs"])
@@ -169,7 +166,18 @@ class Qwen2_5_VLProcessor(ProcessorMixin):
             text = [text]
 
         text = text.copy()  # below lines change text in-place
-        if images is not None:
+        if image_embeds is not None:
+            index = 0
+            for i in range(len(text)):
+                while self.image_token in text[i]:
+                    num_image_tokens = image_embeds[index].shape[0]
+                    text[i] = text[i].replace(self.image_token, "<|placeholder|>" * num_image_tokens, 1)
+                    index += 1
+                text[i] = text[i].replace("<|placeholder|>", self.image_token)
+
+        elif images is not None:
+            image_inputs = self.image_processor(images=images, **output_kwargs["images_kwargs"])
+            image_grid_thw = image_inputs["image_grid_thw"]
             merge_length = self.image_processor.merge_size**2
             index = 0
             for i in range(len(text)):
