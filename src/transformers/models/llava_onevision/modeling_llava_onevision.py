@@ -551,6 +551,7 @@ class LlavaOnevisionModel(LlavaOnevisionPreTrainedModel):
         output_hidden_states: Optional[bool] = None,
         return_dict: Optional[bool] = None,
         cache_position: Optional[torch.LongTensor] = None,
+        image_embeds = None,
         **kwargs: Unpack[FlashAttentionKwargs],
     ) -> Union[tuple, LlavaOnevisionModelOutputWithPast]:
         r"""
@@ -585,8 +586,17 @@ class LlavaOnevisionModel(LlavaOnevisionPreTrainedModel):
         if inputs_embeds is None:
             inputs_embeds = self.get_input_embeddings()(input_ids)
 
+        if image_embeds is not None:
+            image_embeds = image_embeds.squeeze(0)
+            image_features = self.multi_modal_projector(image_embeds)
+            image_features = image_features.to(inputs_embeds.device, inputs_embeds.dtype)
+            special_image_mask, _ = self.get_placeholder_mask(
+                input_ids, inputs_embeds=inputs_embeds, image_features=image_features
+            )
+            inputs_embeds = inputs_embeds.masked_scatter(special_image_mask, image_features)
+
         # Images are processed with Anyres
-        if pixel_values is not None:
+        elif pixel_values is not None:
             image_features = self.get_image_features(
                 pixel_values,
                 image_sizes,
@@ -796,6 +806,7 @@ class LlavaOnevisionForConditionalGeneration(LlavaOnevisionPreTrainedModel, Gene
         return_dict: Optional[bool] = None,
         cache_position: Optional[torch.LongTensor] = None,
         logits_to_keep: Union[int, torch.Tensor] = 0,
+        image_embeds = None,
         **kwargs: Unpack[TransformersKwargs],
     ) -> Union[tuple, LlavaOnevisionCausalLMOutputWithPast]:
         r"""
@@ -857,6 +868,10 @@ class LlavaOnevisionForConditionalGeneration(LlavaOnevisionPreTrainedModel, Gene
             vision_aspect_ratio if vision_aspect_ratio is not None else self.config.vision_aspect_ratio
         )
 
+
+        if cache_position[0] != 0:
+            image_embeds = None
+
         outputs = self.model(
             input_ids=input_ids,
             pixel_values=pixel_values,
@@ -877,6 +892,7 @@ class LlavaOnevisionForConditionalGeneration(LlavaOnevisionPreTrainedModel, Gene
             return_dict=True,
             cache_position=cache_position,
             logits_to_keep=logits_to_keep,
+            image_embeds = image_embeds,
             **kwargs,
         )
 
